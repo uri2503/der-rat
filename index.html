@@ -104,6 +104,10 @@
   input[type=text]:focus, textarea:focus, select:focus{ outline:none; border-color: var(--text-faint); }
   .field{ margin-bottom: 16px; }
   .field:last-child{ margin-bottom:0; }
+  select{ -webkit-appearance:none; appearance:none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%238b8fa3' stroke-width='1.5' fill='none'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position: right 14px center; padding-right: 38px; }
+  .checkbox-label{ display:flex; align-items:flex-start; gap:8px; margin-top:10px; cursor:pointer; text-transform:none; letter-spacing:normal; }
+  .checkbox-label input[type=checkbox]{ width:16px; height:16px; margin-top:1px; accent-color: var(--visionaer); flex-shrink:0; }
+  .checkbox-label span{ font-size:12.5px; color: var(--text-dim); line-height:1.4; }
 
   .btn-primary{
     display:block; width:100%; background: var(--text); color: var(--bg); border:none;
@@ -235,8 +239,17 @@
   <div class="view active" id="view-new">
     <div class="card">
       <div class="field">
-        <label>Projekt (optional)</label>
-        <input type="text" id="input-projekt" placeholder="z.B. AbsperrPilot, AnzeigenAutopilot ...">
+        <label>Projekt</label>
+        <select id="input-projekt-select" onchange="onProjektSelect()">
+          <option value="">Wird geladen ...</option>
+        </select>
+        <input type="text" id="input-projekt-custom" placeholder="Eigenes Projekt eingeben ..." style="display:none; margin-top:8px;">
+      </div>
+      <div class="field">
+        <label>Frage-Vorlage (optional)</label>
+        <select id="input-frage-select" onchange="onFrageSelect()">
+          <option value="">— Eigene Frage formulieren —</option>
+        </select>
       </div>
       <div class="field">
         <label>Die Frage / Entscheidung</label>
@@ -245,6 +258,10 @@
       <div class="field">
         <label>Kontext (optional)</label>
         <textarea id="input-kontext" placeholder="Was sollten die Berater wissen? Stand, Zahlen, Constraints ..."></textarea>
+        <label class="checkbox-label">
+          <input type="checkbox" id="input-vermutung">
+          <span>Das ist nur meine Vermutung, keine gesicherten Fakten</span>
+        </label>
       </div>
       <button class="btn-primary" id="btn-start" onclick="startSitzung()">Vor den Rat bringen</button>
     </div>
@@ -283,12 +300,73 @@ const BERATER = [
 let currentSitzung = null;
 let allSitzungen = [];
 
+// ---- Projekte (rc-digital Portfolio) ----
+const PROJEKTE = [
+  "AnzeigenAutopilot", "Schaden-Check", "Auto-Unfallcheck / CrashGuide", "Auto-Wertcheck",
+  "Betriebspass", "HU-Vorab-Check", "AbsperrPilot", "Mein Schatz", "Baugruppen-Tracker",
+  "BackKI", "BauDesk", "SmartGate", "FoodTruck Planer", "RC Klassiker Wertdossier",
+  "Oldtimer Eiswerk", "Riedel Classic Doku App", "RC Foto-Triage", "Lingua Trainer",
+  "rc-digital.de (Portfolio-Website)", "Sonstiges / sitzungsübergreifend"
+];
+
+// ---- Fragen-Vorlagen nach Phase ----
+const FRAGEN_VORLAGEN = [
+  { phase: "Idee", text: "Löst das ein echtes Problem, oder löse ich ein Problem, das nur ich habe?" },
+  { phase: "Konzept", text: "Ist das ein eigenständiges Produkt oder sollte es ein Feature in einem bestehenden Tool sein?" },
+  { phase: "Priorisierung", text: "Soll ich dieses Projekt jetzt weiterbauen oder erstmal pausieren zugunsten eines anderen?" },
+  { phase: "Pricing", text: "Ist mein aktuelles Preismodell richtig, oder verschenke/übertreibe ich?" },
+  { phase: "Zielgruppe", text: "Spreche ich die richtige Zielgruppe an, oder sollte ich schärfer eingrenzen?" },
+  { phase: "Build", text: "Lohnt sich der Aufwand für dieses Feature, oder ist das Perfektionismus?" },
+  { phase: "Launch", text: "Ist das reif für echte Kunden, oder brauche ich noch eine Sicherheitsrunde?" },
+  { phase: "Vertrieb", text: "Wie sollte ich das primär verkaufen — Direktvertrieb, Partner, oder Lizenzmodell?" },
+  { phase: "Pivot", text: "Soll ich die Richtung grundlegend ändern, oder nur nachjustieren?" },
+  { phase: "Fokus", text: "Sollte ich dieses Projekt einstellen und die Energie woanders investieren?" }
+];
+
+function initDropdowns(){
+  const projektSelect = document.getElementById('input-projekt-select');
+  projektSelect.innerHTML = '<option value="">— Projekt wählen —</option>' +
+    PROJEKTE.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('') +
+    '<option value="__custom__">Eigenes Projekt eingeben ...</option>';
+
+  const frageSelect = document.getElementById('input-frage-select');
+  frageSelect.innerHTML = '<option value="">— Eigene Frage formulieren —</option>' +
+    FRAGEN_VORLAGEN.map(f => `<option value="${escapeHtml(f.text)}">${escapeHtml(f.phase)}: ${escapeHtml(f.text)}</option>`).join('');
+}
+
+function onProjektSelect(){
+  const val = document.getElementById('input-projekt-select').value;
+  const customInput = document.getElementById('input-projekt-custom');
+  if(val === '__custom__'){
+    customInput.style.display = 'block';
+    customInput.focus();
+  } else {
+    customInput.style.display = 'none';
+  }
+}
+
+function onFrageSelect(){
+  const val = document.getElementById('input-frage-select').value;
+  if(val){
+    document.getElementById('input-frage').value = val;
+  }
+}
+
+function getProjektValue(){
+  const sel = document.getElementById('input-projekt-select').value;
+  if(sel === '__custom__'){
+    return document.getElementById('input-projekt-custom').value.trim();
+  }
+  return sel;
+}
+
 // ---- PIN ----
 function checkPin(){
   const val = document.getElementById('pin-input').value;
   if(val === CORRECT_PIN){
     document.getElementById('lock').style.display = 'none';
     document.getElementById('app').style.display = 'block';
+    initDropdowns();
     loadList();
   } else {
     document.getElementById('lock-error').textContent = 'Falsche PIN.';
@@ -400,8 +478,12 @@ async function askClaude(systemPrompt, userPrompt){
 async function startSitzung(){
   const frage = document.getElementById('input-frage').value.trim();
   if(!frage){ alert('Bitte eine Frage eingeben.'); return; }
-  const projekt = document.getElementById('input-projekt').value.trim();
-  const kontext = document.getElementById('input-kontext').value.trim();
+  const projekt = getProjektValue();
+  let kontext = document.getElementById('input-kontext').value.trim();
+  const istVermutung = document.getElementById('input-vermutung').checked;
+  if(kontext && istVermutung){
+    kontext = kontext + '\n\n(Hinweis: Dies ist eine Vermutung/Annahme von Uri, kein gesicherter Fakt — bitte entsprechend einordnen und ggf. hinterfragen.)';
+  }
 
   const btn = document.getElementById('btn-start');
   btn.disabled = true; btn.textContent = 'Der Rat berät ...';
@@ -428,9 +510,13 @@ async function startSitzung(){
     });
     currentSitzung = insertRes[0];
 
-    document.getElementById('input-projekt').value = '';
+    document.getElementById('input-projekt-select').value = '';
+    document.getElementById('input-projekt-custom').value = '';
+    document.getElementById('input-projekt-custom').style.display = 'none';
+    document.getElementById('input-frage-select').value = '';
     document.getElementById('input-frage').value = '';
     document.getElementById('input-kontext').value = '';
+    document.getElementById('input-vermutung').checked = false;
 
     renderDetail();
   } catch(e){
