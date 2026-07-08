@@ -457,21 +457,34 @@ function escapeHtml(str){
   return d.innerHTML;
 }
 
-// ---- Claude API call ----
-async function askClaude(systemPrompt, userPrompt){
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1000,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }]
-    })
-  });
-  const data = await res.json();
-  const textBlock = (data.content || []).find(b => b.type === 'text');
-  return textBlock ? textBlock.text.trim() : '';
+// ---- Claude API call (mit 1x Retry bei Netzwerkfehler) ----
+async function askClaude(systemPrompt, userPrompt, retried){
+  try{
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 1000,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userPrompt }]
+      })
+    });
+    if(!res.ok){
+      const errText = await res.text();
+      throw new Error('API-Fehler (' + res.status + '): ' + errText.slice(0,200));
+    }
+    const data = await res.json();
+    const textBlock = (data.content || []).find(b => b.type === 'text');
+    if(!textBlock) throw new Error('Keine Textantwort erhalten');
+    return textBlock.text.trim();
+  } catch(err){
+    if(!retried){
+      await new Promise(r => setTimeout(r, 1200));
+      return askClaude(systemPrompt, userPrompt, true);
+    }
+    throw new Error('Verbindung fehlgeschlagen nach erneutem Versuch: ' + err.message);
+  }
 }
 
 // ---- Start new Sitzung: Runde 1 ----
@@ -498,12 +511,19 @@ async function startSitzung(){
 
   try{
     const runde1 = {};
+    let letzterFehler = null;
     for(const b of BERATER){
       const sys = b.prompt + ' Antworte auf Deutsch, 60-120 Wörter, direkt und einseitig aus deiner Linse, ohne Vorgeplänkel. Keine Meta-Kommentare über deine Rolle.';
       const userMsg = `Frage/Entscheidung: ${frage}` + (kontext ? `\n\nKontext: ${kontext}` : '');
-      runde1[b.key] = await askClaude(sys, userMsg);
+      try{
+        runde1[b.key] = await askClaude(sys, userMsg);
+      } catch(e){
+        letzterFehler = e;
+        break; // Rest der Schleife abbrechen, aber Bisheriges behalten
+      }
     }
 
+    // Immer speichern, auch bei Teil-Fortschritt — sonst geht bei Netzwerkfehlern alles verloren
     const insertRes = await sbFetch('rat_sitzungen', {
       method: 'POST',
       body: JSON.stringify({ projekt: projekt || null, frage, kontext: kontext || null, runde1, status: 'offen' })
@@ -519,10 +539,58 @@ async function startSitzung(){
     document.getElementById('input-vermutung').checked = false;
 
     renderDetail();
+
+    if(letzterFehler){
+      document.getElementById('detail-container').innerHTML +=
+        `<div class="error-box">Runde 1 wurde nicht ganz fertig (${Object.keys(runde1).length}/${BERATER.length} Berater haben geantwortet). Grund: ${escapeHtml(letzterFehler.message)}</div>
+         <button class="btn-runde2" onclick="fortsetzenRunde1()">Fehlende Berater nachholen</button>`;
+    }
   } catch(e){
-    document.getElementById('detail-container').innerHTML += `<div class="error-box">Fehler: ${e.message}</div>`;
+    document.getElementById('detail-container').innerHTML += `<div class="error-box">Fehler: ${escapeHtml(e.message)} — bitte Verbindung prüfen und erneut versuchen.</div>`;
   } finally {
     btn.disabled = false; btn.textContent = 'Vor den Rat bringen';
+  }
+}
+
+// ---- Fehlende Berater aus Runde 1 nachholen ----
+async function fortsetzenRunde1(){
+  const s = currentSitzung;
+  const container = document.getElementById('detail-container');
+  container.innerHTML = renderFrageAndRunde1(s) + `
+    <div class="loading">
+      <div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+      <div class="label">Fehlende Berater werden befragt ...</div>
+    </div>`;
+
+  const fehlende = BERATER.filter(b => !s.runde1 || !s.runde1[b.key]);
+  const runde1 = { ...(s.runde1 || {}) };
+  let letzterFehler = null;
+
+  for(const b of fehlende){
+    const sys = b.prompt + ' Antworte auf Deutsch, 60-120 Wörter, direkt und einseitig aus deiner Linse, ohne Vorgeplänkel. Keine Meta-Kommentare über deine Rolle.';
+    const userMsg = `Frage/Entscheidung: ${s.frage}` + (s.kontext ? `\n\nKontext: ${s.kontext}` : '');
+    try{
+      runde1[b.key] = await askClaude(sys, userMsg);
+    } catch(e){
+      letzterFehler = e;
+      break;
+    }
+  }
+
+  try{
+    const updateRes = await sbFetch('rat_sitzungen?id=eq.' + s.id, {
+      method: 'PATCH',
+      body: JSON.stringify({ runde1 })
+    });
+    currentSitzung = updateRes[0];
+    renderDetail();
+    if(letzterFehler){
+      document.getElementById('detail-container').innerHTML +=
+        `<div class="error-box">Noch nicht alle Berater konnten antworten. Grund: ${escapeHtml(letzterFehler.message)}</div>
+         <button class="btn-runde2" onclick="fortsetzenRunde1()">Erneut versuchen</button>`;
+    }
+  } catch(e){
+    container.innerHTML += `<div class="error-box">Speichern fehlgeschlagen: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -538,11 +606,33 @@ async function startRunde2(){
 
   try{
     const andereAntworten = BERATER.map(b => `${b.name}: ${s.runde1[b.key]}`).join('\n\n');
-    const runde2 = {};
-    for(const b of BERATER){
+    let runde2 = { ...(s.runde2 || {}) };
+    const nochOffen = BERATER.filter(b => !runde2[b.key]);
+    let fehlerRunde2 = null;
+    for(const b of nochOffen){
       const sys = b.prompt + ' Du siehst jetzt die Antworten der anderen vier Berater aus Runde 1. Reagiere aus deiner Linse: Wo widersprichst du? Wo verstärkst du? Was hast du selbst übersehen? Antworte auf Deutsch, 60-100 Wörter, direkt. Keine Meta-Kommentare.';
       const userMsg = `Frage: ${s.frage}${s.kontext ? '\nKontext: ' + s.kontext : ''}\n\nAntworten aus Runde 1:\n${andereAntworten}\n\nDeine eigene Runde-1-Antwort war: ${s.runde1[b.key]}`;
-      runde2[b.key] = await askClaude(sys, userMsg);
+      try{
+        runde2[b.key] = await askClaude(sys, userMsg);
+      } catch(e){
+        fehlerRunde2 = e;
+        break;
+      }
+    }
+
+    // Runde 2 zwischenspeichern, auch bei Teil-Fortschritt
+    let updateRes = await sbFetch('rat_sitzungen?id=eq.' + s.id, {
+      method: 'PATCH',
+      body: JSON.stringify({ runde2 })
+    });
+    currentSitzung = updateRes[0];
+
+    if(fehlerRunde2){
+      renderDetail();
+      document.getElementById('detail-container').innerHTML +=
+        `<div class="error-box">Runde 2 wurde nicht ganz fertig (${Object.keys(runde2).length}/${BERATER.length} Berater). Grund: ${escapeHtml(fehlerRunde2.message)}</div>
+         <button class="btn-runde2" onclick="startRunde2()">Erneut versuchen</button>`;
+      return;
     }
 
     container.innerHTML = renderFrageAndRunde1(s) + renderRunde2(runde2) + `
@@ -553,7 +643,19 @@ async function startRunde2(){
 
     const kreuzfeuerSys = 'Du bist ein neutraler Beobachter, der eine Ratsdebatte verfolgt hat. Fasse in 3-5 Sätzen auf Deutsch zusammen: Welche Antwort war am stärksten und warum? Welche hatte den größten blinden Fleck? Was haben alle fünf übersehen? Kurz und direkt, keine Überschriften.';
     const kreuzfeuerMsg = `Frage: ${s.frage}\n\nRunde 1:\n${andereAntworten}\n\nRunde 2 (Reaktionen):\n${BERATER.map(b => `${b.name}: ${runde2[b.key]}`).join('\n\n')}`;
-    const kreuzfeuer = await askClaude(kreuzfeuerSys, kreuzfeuerMsg);
+    let kreuzfeuer;
+    try{
+      kreuzfeuer = await askClaude(kreuzfeuerSys, kreuzfeuerMsg);
+    } catch(e){
+      renderDetail();
+      document.getElementById('detail-container').innerHTML +=
+        `<div class="error-box">Kreuzfeuer fehlgeschlagen: ${escapeHtml(e.message)}</div>
+         <button class="btn-runde2" onclick="startFazit()">Erneut versuchen</button>`;
+      return;
+    }
+
+    await sbFetch('rat_sitzungen?id=eq.' + s.id, { method: 'PATCH', body: JSON.stringify({ kreuzfeuer }) });
+    currentSitzung.kreuzfeuer = kreuzfeuer;
 
     const vorsitzSys = `Du bist DER VORSITZENDE des Rats. Du bist kein sechster Berater mit eigener Meinung, sondern synthetisierst die Debatte zu einem klaren Urteil. Antworte NUR mit einem validen JSON-Objekt (keine Markdown-Codeblöcke, kein Preamble), mit exakt diesen Feldern (Strings, Deutsch, direkt und ohne Hedging):
 {
@@ -564,18 +666,76 @@ async function startRunde2(){
   "ersterSchritt": "Ein einziger konkreter nächster Schritt, keine Liste"
 }`;
     const vorsitzMsg = `Frage: ${s.frage}${s.kontext ? '\nKontext: ' + s.kontext : ''}\n\nRunde 1:\n${andereAntworten}\n\nRunde 2:\n${BERATER.map(b => `${b.name}: ${runde2[b.key]}`).join('\n\n')}\n\nKreuzfeuer-Beobachtung:\n${kreuzfeuer}`;
+    let fazit;
+    try{
+      let fazitRaw = await askClaude(vorsitzSys, vorsitzMsg);
+      fazitRaw = fazitRaw.replace(/```json|```/g, '').trim();
+      fazit = JSON.parse(fazitRaw);
+    } catch(e){
+      renderDetail();
+      document.getElementById('detail-container').innerHTML +=
+        `<div class="error-box">Vorsitzenden-Fazit fehlgeschlagen: ${escapeHtml(e.message)}</div>
+         <button class="btn-runde2" onclick="startFazit()">Erneut versuchen</button>`;
+      return;
+    }
+
+    const finalRes = await sbFetch('rat_sitzungen?id=eq.' + s.id, {
+      method: 'PATCH',
+      body: JSON.stringify({ fazit, status: 'fertig' })
+    });
+    currentSitzung = finalRes[0];
+    renderDetail();
+  } catch(e){
+    container.innerHTML += `<div class="error-box">Fehler in Runde 2: ${e.message}</div>`;
+  }
+}
+
+// ---- Nur Kreuzfeuer + Fazit erneut versuchen (wenn Runde 2 schon fertig ist) ----
+async function startFazit(){
+  const s = currentSitzung;
+  const container = document.getElementById('detail-container');
+  container.innerHTML = renderFrageAndRunde1(s) + renderRunde2(s.runde2) + `
+    <div class="loading">
+      <div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+      <div class="label">Der Vorsitzende fasst zusammen ...</div>
+    </div>`;
+
+  const andereAntworten = BERATER.map(b => `${b.name}: ${s.runde1[b.key]}`).join('\n\n');
+  let kreuzfeuer = s.kreuzfeuer;
+
+  try{
+    if(!kreuzfeuer){
+      const kreuzfeuerSys = 'Du bist ein neutraler Beobachter, der eine Ratsdebatte verfolgt hat. Fasse in 3-5 Sätzen auf Deutsch zusammen: Welche Antwort war am stärksten und warum? Welche hatte den größten blinden Fleck? Was haben alle fünf übersehen? Kurz und direkt, keine Überschriften.';
+      const kreuzfeuerMsg = `Frage: ${s.frage}\n\nRunde 1:\n${andereAntworten}\n\nRunde 2 (Reaktionen):\n${BERATER.map(b => `${b.name}: ${s.runde2[b.key]}`).join('\n\n')}`;
+      kreuzfeuer = await askClaude(kreuzfeuerSys, kreuzfeuerMsg);
+      await sbFetch('rat_sitzungen?id=eq.' + s.id, { method: 'PATCH', body: JSON.stringify({ kreuzfeuer }) });
+      currentSitzung.kreuzfeuer = kreuzfeuer;
+    }
+
+    const vorsitzSys = `Du bist DER VORSITZENDE des Rats. Du bist kein sechster Berater mit eigener Meinung, sondern synthetisierst die Debatte zu einem klaren Urteil. Antworte NUR mit einem validen JSON-Objekt (keine Markdown-Codeblöcke, kein Preamble), mit exakt diesen Feldern (Strings, Deutsch, direkt und ohne Hedging):
+{
+  "einigkeit": "Worüber sich der Rat einig ist",
+  "streit": "Worüber der Rat streitet - echte Meinungsverschiedenheiten, nicht glattgebügelt",
+  "uebersehen": "Was der Rat fast übersehen hätte",
+  "empfehlung": "Eine klare, direkte Empfehlung. Kein 'kommt drauf an'. Darf gegen die Mehrheit gehen, wenn die Begründung stärker ist.",
+  "ersterSchritt": "Ein einziger konkreter nächster Schritt, keine Liste"
+}`;
+    const vorsitzMsg = `Frage: ${s.frage}${s.kontext ? '\nKontext: ' + s.kontext : ''}\n\nRunde 1:\n${andereAntworten}\n\nRunde 2:\n${BERATER.map(b => `${b.name}: ${s.runde2[b.key]}`).join('\n\n')}\n\nKreuzfeuer-Beobachtung:\n${kreuzfeuer}`;
     let fazitRaw = await askClaude(vorsitzSys, vorsitzMsg);
     fazitRaw = fazitRaw.replace(/```json|```/g, '').trim();
     const fazit = JSON.parse(fazitRaw);
 
-    const updateRes = await sbFetch('rat_sitzungen?id=eq.' + s.id, {
+    const finalRes = await sbFetch('rat_sitzungen?id=eq.' + s.id, {
       method: 'PATCH',
-      body: JSON.stringify({ runde2, kreuzfeuer, fazit, status: 'fertig' })
+      body: JSON.stringify({ fazit, status: 'fertig' })
     });
-    currentSitzung = updateRes[0];
+    currentSitzung = finalRes[0];
     renderDetail();
   } catch(e){
-    container.innerHTML += `<div class="error-box">Fehler in Runde 2: ${e.message}</div>`;
+    renderDetail();
+    document.getElementById('detail-container').innerHTML +=
+      `<div class="error-box">Fehlgeschlagen: ${escapeHtml(e.message)}</div>
+       <button class="btn-runde2" onclick="startFazit()">Erneut versuchen</button>`;
   }
 }
 
@@ -628,8 +788,12 @@ function renderDetail(){
   }
   if(s.fazit){
     html += renderFazit(s);
+  } else if(s.runde2 && Object.keys(s.runde2).length === BERATER.length){
+    html += `<button class="btn-runde2" onclick="startFazit()">Fazit abschließen</button>`;
   } else if(s.runde1 && Object.keys(s.runde1).length === BERATER.length){
     html += `<button class="btn-runde2" onclick="startRunde2()">Runde 2 starten — Reaktionen aufeinander</button>`;
+  } else if(s.runde1 && Object.keys(s.runde1).length > 0 && Object.keys(s.runde1).length < BERATER.length){
+    html += `<button class="btn-runde2" onclick="fortsetzenRunde1()">Runde 1 fortsetzen (${Object.keys(s.runde1).length}/${BERATER.length})</button>`;
   }
 
   container.innerHTML = html;
