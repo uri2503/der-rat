@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Der Rat</title>
+<style>
+  :root{
+    --bg: #0b0d12;
+    --bg-panel: #12151d;
+    --bg-panel-raised: #171b26;
+    --line: #232838;
+    --text: #e8e9ed;
+    --text-dim: #8b8fa3;
+    --text-faint: #565b70;
+
+    --skeptiker: #c65b4e;
+    --grundsatz: #4e8bc6;
+    --visionaer: #c6a24e;
+    --aussen: #4ec69a;
+    --macher: #9a6ec6;
+
+    --vorsitz: #f4f1ea;
+    --vorsitz-bg: #1a1d26;
+
+    --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --mono: 'SF Mono', 'Menlo', monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; }
+  body{
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    padding-bottom: 80px;
+  }
+
+  /* Ambient background: five faint radial glows, like presences in a dark room */
+  .ambient{
+    position: fixed; inset:0; z-index:0; pointer-events:none;
+    background:
+      radial-gradient(ellipse 600px 400px at 10% -10%, rgba(198,91,78,0.06), transparent 60%),
+      radial-gradient(ellipse 600px 400px at 90% -5%, rgba(78,139,198,0.06), transparent 60%),
+      radial-gradient(ellipse 700px 500px at 50% 110%, rgba(198,162,78,0.05), transparent 60%),
+      radial-gradient(ellipse 500px 400px at -5% 60%, rgba(78,198,154,0.05), transparent 60%),
+      radial-gradient(ellipse 500px 400px at 105% 60%, rgba(154,110,198,0.05), transparent 60%);
+  }
+
+  .wrap{ position:relative; z-index:1; max-width: 720px; margin:0 auto; padding: 24px 18px 40px; }
+
+  /* Header */
+  header{ margin-bottom: 28px; }
+  .brand{ display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
+  h1{
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: 30px;
+    letter-spacing: 0.01em;
+    margin: 0;
+    color: var(--text);
+  }
+  .tagline{ color: var(--text-dim); font-size: 13px; margin-top: 4px; line-height:1.5; }
+  .nav-btn{
+    background: none; border: 1px solid var(--line); color: var(--text-dim);
+    font-family: var(--sans); font-size: 12px; padding: 7px 12px; border-radius: 20px;
+    cursor:pointer; white-space:nowrap;
+  }
+  .nav-btn:active{ background: var(--bg-panel-raised); }
+
+  /* Lock screen */
+  #lock{ display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:70vh; text-align:center; }
+  #lock h1{ margin-bottom: 20px; }
+  #pin-input{
+    background: var(--bg-panel); border:1px solid var(--line); color: var(--text);
+    font-family: var(--mono); font-size: 22px; letter-spacing: 8px; text-align:center;
+    width: 160px; padding: 14px 0; border-radius: 10px; margin-bottom: 14px;
+  }
+  #pin-input:focus{ outline:none; border-color: var(--text-faint); }
+  #lock-error{ color: var(--skeptiker); font-size: 13px; min-height: 18px; margin-bottom:10px; }
+  #lock button.submit{
+    background: var(--text); color: var(--bg); border:none; font-family: var(--sans);
+    font-weight:600; font-size:14px; padding: 12px 28px; border-radius: 24px; cursor:pointer;
+  }
+
+  /* Views */
+  .view{ display:none; }
+  .view.active{ display:block; }
+
+  /* New session form */
+  .card{
+    background: var(--bg-panel); border:1px solid var(--line); border-radius: 14px;
+    padding: 20px; margin-bottom: 16px;
+  }
+  label{ display:block; font-size:12px; text-transform:uppercase; letter-spacing:0.06em; color: var(--text-faint); margin-bottom:8px; }
+  input[type=text], textarea, select{
+    width:100%; background: var(--bg-panel-raised); border:1px solid var(--line); color: var(--text);
+    font-family: var(--sans); font-size: 15px; padding: 12px 14px; border-radius: 10px; resize: vertical;
+  }
+  textarea{ min-height: 90px; line-height:1.5; }
+  input[type=text]:focus, textarea:focus, select:focus{ outline:none; border-color: var(--text-faint); }
+  .field{ margin-bottom: 16px; }
+  .field:last-child{ margin-bottom:0; }
+  select{ -webkit-appearance:none; appearance:none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%238b8fa3' stroke-width='1.5' fill='none'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position: right 14px center; padding-right: 38px; }
+  .checkbox-label{ display:flex; align-items:flex-start; gap:8px; margin-top:10px; cursor:pointer; text-transform:none; letter-spacing:normal; }
+  .checkbox-label input[type=checkbox]{ width:16px; height:16px; margin-top:1px; accent-color: var(--visionaer); flex-shrink:0; }
+  .checkbox-label span{ font-size:12.5px; color: var(--text-dim); line-height:1.4; }
+
+  .btn-primary{
+    display:block; width:100%; background: var(--text); color: var(--bg); border:none;
+    font-family: var(--sans); font-weight:600; font-size:15px; padding: 15px; border-radius: 12px;
+    cursor:pointer; margin-top: 6px;
+  }
+  .btn-primary:disabled{ opacity:0.4; }
+  .btn-secondary{
+    display:block; width:100%; background:none; color: var(--text-dim); border:1px solid var(--line);
+    font-family: var(--sans); font-size:14px; padding: 12px; border-radius: 12px; cursor:pointer; margin-top:10px;
+  }
+
+  /* Session list */
+  .session-item{
+    background: var(--bg-panel); border:1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px; margin-bottom: 10px; cursor:pointer;
+  }
+  .session-item .proj{ font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color: var(--text-faint); margin-bottom:4px; }
+  .session-item .frage{ font-size:15px; line-height:1.4; margin-bottom: 6px; }
+  .session-item .meta{ font-size:12px; color: var(--text-faint); display:flex; justify-content:space-between; }
+  .status-pill{ font-size:10px; padding:2px 8px; border-radius:10px; text-transform:uppercase; letter-spacing:0.04em; }
+  .status-offen{ background: rgba(198,162,78,0.15); color: var(--visionaer); }
+  .status-fertig{ background: rgba(78,198,154,0.15); color: var(--aussen); }
+  .empty-state{ text-align:center; padding: 60px 20px; color: var(--text-faint); }
+  .empty-state .big{ font-family: var(--serif); font-size:20px; color: var(--text-dim); margin-bottom:8px; }
+
+  /* Session detail */
+  .frage-box{
+    font-family: var(--serif); font-size: 19px; line-height:1.5; color: var(--text);
+    padding: 4px 0 20px; border-bottom: 1px solid var(--line); margin-bottom: 20px;
+  }
+  .frage-box .eyebrow{ font-family: var(--sans); font-size:11px; text-transform:uppercase; letter-spacing:0.06em; color: var(--text-faint); margin-bottom:8px; }
+
+  .runde-label{
+    font-size: 11px; text-transform:uppercase; letter-spacing: 0.08em; color: var(--text-faint);
+    margin: 26px 0 12px; display:flex; align-items:center; gap:10px;
+  }
+  .runde-label::after{ content:''; flex:1; height:1px; background: var(--line); }
+
+  .berater-card{
+    border-left: 3px solid; background: var(--bg-panel); border-radius: 0 12px 12px 0;
+    padding: 14px 16px; margin-bottom: 10px;
+  }
+  .berater-card .name{ font-weight:600; font-size: 13px; margin-bottom: 6px; letter-spacing:0.01em; }
+  .berater-card .text{ font-size: 14.5px; line-height: 1.55; color: var(--text); }
+  .berater-card.skeptiker{ border-color: var(--skeptiker); } .berater-card.skeptiker .name{ color: var(--skeptiker); }
+  .berater-card.grundsatz{ border-color: var(--grundsatz); } .berater-card.grundsatz .name{ color: var(--grundsatz); }
+  .berater-card.visionaer{ border-color: var(--visionaer); } .berater-card.visionaer .name{ color: var(--visionaer); }
+  .berater-card.aussen{ border-color: var(--aussen); } .berater-card.aussen .name{ color: var(--aussen); }
+  .berater-card.macher{ border-color: var(--macher); } .berater-card.macher .name{ color: var(--macher); }
+
+  .kreuzfeuer-box{
+    background: var(--bg-panel-raised); border: 1px dashed var(--line); border-radius: 12px;
+    padding: 16px; font-size: 14px; line-height:1.6; color: var(--text-dim); margin-top: 6px;
+  }
+
+  /* Fazit / Vorsitzender */
+  .fazit-wrap{
+    background: var(--vorsitz-bg); border: 1px solid var(--line); border-radius: 16px;
+    padding: 24px 22px; margin-top: 26px;
+  }
+  .fazit-eyebrow{
+    font-family: var(--serif); font-style:italic; font-size: 13px; color: var(--vorsitz);
+    opacity: 0.7; margin-bottom: 18px; text-align:center;
+  }
+  .fazit-section{ margin-bottom: 18px; }
+  .fazit-section:last-child{ margin-bottom:0; }
+  .fazit-section h3{
+    font-size: 11px; text-transform:uppercase; letter-spacing:0.06em; color: var(--text-faint);
+    margin: 0 0 6px; font-weight:600;
+  }
+  .fazit-section p{ margin:0; font-size:14.5px; line-height:1.6; color: var(--vorsitz); }
+  .fazit-section.empfehlung{
+    background: rgba(244,241,234,0.05); border-radius: 10px; padding: 14px 16px; margin: 18px 0;
+  }
+  .fazit-section.empfehlung h3{ color: var(--visionaer); }
+  .fazit-section.schritt p{ font-family: var(--serif); font-size: 16px; }
+
+  /* Loading state */
+  .loading{ display:flex; flex-direction:column; align-items:center; padding: 50px 20px; text-align:center; }
+  .loading .dots{ display:flex; gap:6px; margin-bottom:16px; }
+  .loading .dot{ width:8px; height:8px; border-radius:50%; background: var(--text-faint); animation: pulse 1.4s ease-in-out infinite; }
+  .loading .dot:nth-child(1){ animation-delay: 0s; }
+  .loading .dot:nth-child(2){ animation-delay: 0.2s; }
+  .loading .dot:nth-child(3){ animation-delay: 0.4s; }
+  .loading .dot:nth-child(4){ animation-delay: 0.6s; }
+  .loading .dot:nth-child(5){ animation-delay: 0.8s; }
+  @keyframes pulse{ 0%,60%,100%{ opacity:0.25; transform: scale(0.85); } 30%{ opacity:1; transform: scale(1); } }
+  .loading .label{ color: var(--text-dim); font-size: 13px; }
+
+  .btn-runde2{
+    background: var(--text); color: var(--bg); border:none; font-family: var(--sans);
+    font-weight:600; font-size:14px; padding: 13px 24px; border-radius: 12px; cursor:pointer;
+    display:block; width:100%; margin-top: 22px;
+  }
+
+  .error-box{
+    background: rgba(198,91,78,0.1); border: 1px solid rgba(198,91,78,0.3); color: var(--skeptiker);
+    border-radius: 10px; padding: 12px 14px; font-size: 13px; margin-top: 12px;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .loading .dot{ animation: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="ambient"></div>
+
+<!-- LOCK SCREEN -->
+<div id="lock">
+  <h1>Der Rat</h1>
+  <input type="text" id="pin-input" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="off">
+  <div id="lock-error"></div>
+  <button class="submit" onclick="checkPin()">Eintreten</button>
+</div>
+
+<div class="wrap" id="app" style="display:none;">
+  <header>
+    <div class="brand">
+      <h1 id="header-title">Der Rat</h1>
+      <button class="nav-btn" id="nav-btn" onclick="goToList()">Historie</button>
+    </div>
+    <div class="tagline" id="header-tagline">Fünf Denkweisen, ein Urteil.</div>
+  </header>
+
+  <!-- VIEW: NEW SESSION -->
+  <div class="view active" id="view-new">
+    <div class="card">
+      <div class="field">
+        <label>Projekt</label>
+        <select id="input-projekt-select" onchange="onProjektSelect()">
+          <option value="">Wird geladen ...</option>
+        </select>
+        <input type="text" id="input-projekt-custom" placeholder="Eigenes Projekt eingeben ..." style="display:none; margin-top:8px;">
+      </div>
+      <div class="field">
+        <label>Frage-Vorlage (optional)</label>
+        <select id="input-frage-select" onchange="onFrageSelect()">
+          <option value="">— Eigene Frage formulieren —</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Die Frage / Entscheidung</label>
+        <textarea id="input-frage" placeholder="Was steht zur Debatte? Je konkreter, desto besser."></textarea>
+      </div>
+      <div class="field">
+        <label>Kontext (optional)</label>
+        <textarea id="input-kontext" placeholder="Was sollten die Berater wissen? Stand, Zahlen, Constraints ..."></textarea>
+        <label class="checkbox-label">
+          <input type="checkbox" id="input-vermutung">
+          <span>Das ist nur meine Vermutung, keine gesicherten Fakten</span>
+        </label>
+      </div>
+      <button class="btn-primary" id="btn-start" onclick="startSitzung()">Vor den Rat bringen</button>
+    </div>
+    <button class="btn-secondary" onclick="goToList()">Vergangene Sitzungen ansehen</button>
+  </div>
+
+  <!-- VIEW: SESSION LIST -->
+  <div class="view" id="view-list">
+    <div id="list-container"></div>
+  </div>
+
+  <!-- VIEW: SESSION DETAIL -->
+  <div class="view" id="view-detail">
+    <div id="detail-container"></div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = "https://ysqzdqazcgyuzdorauiq.supabase.co";
+const SUPABASE_KEY = "sb_publishable_v4kXJa0y-2EHsCFPqBFHfg_QvzKLnt2";
+const CORRECT_PIN = "2503";
+
+const BERATER = [
+  { key:'skeptiker', name:'Der Skeptiker', cls:'skeptiker',
+    prompt: 'Du bist DER SKEPTIKER. Du suchst aktiv nach dem, was nicht funktioniert, was fehlt, was scheitern wird. Du gehst davon aus, dass die Idee einen fatalen Fehler hat, und versuchst ihn zu finden. Kein Pessimist um des Pessimismus willen - du bist der Freund, der vor einem schlechten Deal bewahrt, indem er die unbequemen Fragen stellt.' },
+  { key:'grundsatz', name:'Der Grundsatz-Denker', cls:'grundsatz',
+    prompt: 'Du bist DER GRUNDSATZ-DENKER. Du ignorierst die Oberflächen-Frage und fragst: "Was wollen wir hier eigentlich lösen?" Du streichst Annahmen weg und baust das Problem von Grund auf neu zusammen. Manchmal ist dein wertvollster Beitrag der Satz: "Das ist die falsche Frage."' },
+  { key:'visionaer', name:'Der Visionär', cls:'visionaer',
+    prompt: 'Du bist DER VISIONÄR. Du suchst das Upside, das alle anderen übersehen. Was könnte größer sein? Welche angrenzende Chance liegt versteckt? Risiko ist nicht dein Job - dich interessiert nur, was passiert, wenn die Sache besser läuft als gedacht.' },
+  { key:'aussen', name:'Der Außenstehende', cls:'aussen',
+    prompt: 'Du bist DER AUSSENSTEHENDE. Du hast (tu so als ob) keinen Kontext über die Person, ihr Feld oder ihre Geschichte. Du reagierst rein auf das, was vor dir liegt, und fängst den "Fluch des Wissens" ein - Dinge, die für Experten offensichtlich sind, aber für Außenstehende verwirrend oder fragwürdig.' },
+  { key:'macher', name:'Der Macher', cls:'macher',
+    prompt: 'Du bist DER MACHER. Dich interessiert nur eins: Lässt sich das tatsächlich umsetzen, und was ist der schnellste Weg dahin? Theorie, Strategie, Big Picture - egal. Du schaust auf jede Idee durch die Brille "Okay, aber was macht man Montagmorgen?" Klingt eine Idee brillant, hat aber keinen klaren ersten Schritt, sagst du das.' }
+];
+
+let currentSitzung = null;
+let allSitzungen = [];
+
+// ---- Projekte (rc-digital Portfolio) ----
+const PROJEKTE = [
+  "AnzeigenAutopilot", "Schaden-Check", "Auto-Unfallcheck / CrashGuide", "Auto-Wertcheck",
+  "Betriebspass", "HU-Vorab-Check", "AbsperrPilot", "Mein Schatz", "Baugruppen-Tracker",
+  "BackKI", "BauDesk", "SmartGate", "FoodTruck Planer", "RC Klassiker Wertdossier",
+  "Oldtimer Eiswerk", "Riedel Classic Doku App", "RC Foto-Triage", "Lingua Trainer",
+  "rc-digital.de (Portfolio-Website)", "Sonstiges / sitzungsübergreifend"
+];
+
+// ---- Fragen-Vorlagen nach Phase ----
+const FRAGEN_VORLAGEN = [
+  { phase: "Idee", text: "Löst das ein echtes Problem, oder löse ich ein Problem, das nur ich habe?" },
+  { phase: "Konzept", text: "Ist das ein eigenständiges Produkt oder sollte es ein Feature in einem bestehenden Tool sein?" },
+  { phase: "Priorisierung", text: "Soll ich dieses Projekt jetzt weiterbauen oder erstmal pausieren zugunsten eines anderen?" },
+  { phase: "Pricing", text: "Ist mein aktuelles Preismodell richtig, oder verschenke/übertreibe ich?" },
+  { phase: "Zielgruppe", text: "Spreche ich die richtige Zielgruppe an, oder sollte ich schärfer eingrenzen?" },
+  { phase: "Build", text: "Lohnt sich der Aufwand für dieses Feature, oder ist das Perfektionismus?" },
+  { phase: "Launch", text: "Ist das reif für echte Kunden, oder brauche ich noch eine Sicherheitsrunde?" },
+  { phase: "Vertrieb", text: "Wie sollte ich das primär verkaufen — Direktvertrieb, Partner, oder Lizenzmodell?" },
+  { phase: "Pivot", text: "Soll ich die Richtung grundlegend ändern, oder nur nachjustieren?" },
+  { phase: "Fokus", text: "Sollte ich dieses Projekt einstellen und die Energie woanders investieren?" }
+];
+
+function initDropdowns(){
+  const projektSelect = document.getElementById('input-projekt-select');
+  projektSelect.innerHTML = '<option value="">— Projekt wählen —</option>' +
+    PROJEKTE.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('') +
+    '<option value="__custom__">Eigenes Projekt eingeben ...</option>';
+
+  const frageSelect = document.getElementById('input-frage-select');
+  frageSelect.innerHTML = '<option value="">— Eigene Frage formulieren —</option>' +
+    FRAGEN_VORLAGEN.map(f => `<option value="${escapeHtml(f.text)}">${escapeHtml(f.phase)}: ${escapeHtml(f.text)}</option>`).join('');
+}
+
+function onProjektSelect(){
+  const val = document.getElementById('input-projekt-select').value;
+  const customInput = document.getElementById('input-projekt-custom');
+  if(val === '__custom__'){
+    customInput.style.display = 'block';
+    customInput.focus();
+  } else {
+    customInput.style.display = 'none';
+  }
+}
+
+function onFrageSelect(){
+  const val = document.getElementById('input-frage-select').value;
+  if(val){
+    document.getElementById('input-frage').value = val;
+  }
+}
+
+function getProjektValue(){
+  const sel = document.getElementById('input-projekt-select').value;
+  if(sel === '__custom__'){
+    return document.getElementById('input-projekt-custom').value.trim();
+  }
+  return sel;
+}
+
+// ---- PIN ----
+function checkPin(){
+  const val = document.getElementById('pin-input').value;
+  if(val === CORRECT_PIN){
+    document.getElementById('lock').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    initDropdowns();
+    loadList();
+  } else {
+    document.getElementById('lock-error').textContent = 'Falsche PIN.';
+    document.getElementById('pin-input').value = '';
+  }
+}
+document.getElementById('pin-input').addEventListener('keydown', e => { if(e.key === 'Enter') checkPin(); });
+
+// ---- Navigation ----
+function showView(id){
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+function goToNew(){
+  showView('view-new');
+  document.getElementById('header-title').textContent = 'Der Rat';
+  document.getElementById('header-tagline').textContent = 'Fünf Denkweisen, ein Urteil.';
+  document.getElementById('nav-btn').textContent = 'Historie';
+  document.getElementById('nav-btn').onclick = goToList;
+}
+function goToList(){
+  showView('view-list');
+  document.getElementById('header-title').textContent = 'Historie';
+  document.getElementById('header-tagline').textContent = allSitzungen.length + ' Sitzung' + (allSitzungen.length===1?'':'en');
+  document.getElementById('nav-btn').textContent = 'Neu';
+  document.getElementById('nav-btn').onclick = goToNew;
+  loadList();
+}
+
+// ---- Supabase helpers ----
+async function sbFetch(path, opts={}){
+  const res = await fetch(SUPABASE_URL + '/rest/v1/' + path, {
+    ...opts,
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': 'Bearer ' + SUPABASE_KEY,
+      'Content-Type': 'application/json',
+      'Prefer': opts.prefer || 'return=representation',
+      ...(opts.headers||{})
+    }
+  });
+  if(!res.ok){ const t = await res.text(); throw new Error('Supabase-Fehler: ' + t); }
+  return res.json();
+}
+
+async function loadList(){
+  const container = document.getElementById('list-container');
+  container.innerHTML = '<div class="loading"><div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div><div class="label">Lade Sitzungen ...</div></div>';
+  try{
+    allSitzungen = await sbFetch('rat_sitzungen?select=*&order=created_at.desc');
+  } catch(e){
+    container.innerHTML = '<div class="error-box">Konnte Historie nicht laden: ' + e.message + '</div>';
+    return;
+  }
+  if(allSitzungen.length === 0){
+    container.innerHTML = '<div class="empty-state"><div class="big">Noch keine Sitzung</div>Bring dein erstes Projekt vor den Rat.</div>';
+    return;
+  }
+  container.innerHTML = allSitzungen.map(s => {
+    const datum = new Date(s.created_at).toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit', year:'numeric'});
+    const statusCls = s.status === 'fertig' ? 'status-fertig' : 'status-offen';
+    const statusTxt = s.status === 'fertig' ? 'Fazit vorliegt' : 'Offen';
+    return `<div class="session-item" onclick="openSitzung('${s.id}')">
+      ${s.projekt ? `<div class="proj">${escapeHtml(s.projekt)}</div>` : ''}
+      <div class="frage">${escapeHtml(s.frage)}</div>
+      <div class="meta"><span>${datum}</span><span class="status-pill ${statusCls}">${statusTxt}</span></div>
+    </div>`;
+  }).join('');
+}
+
+async function openSitzung(id){
+  currentSitzung = allSitzungen.find(s => s.id === id);
+  if(!currentSitzung){
+    const rows = await sbFetch('rat_sitzungen?id=eq.' + id + '&select=*');
+    currentSitzung = rows[0];
+  }
+  showView('view-detail');
+  document.getElementById('header-title').textContent = 'Sitzung';
+  document.getElementById('header-tagline').textContent = currentSitzung.projekt || '';
+  document.getElementById('nav-btn').textContent = 'Historie';
+  document.getElementById('nav-btn').onclick = goToList;
+  renderDetail();
+}
+
+function escapeHtml(str){
+  const d = document.createElement('div');
+  d.textContent = str || '';
+  return d.innerHTML;
+}
+
+// ---- Claude API call über claude-proxy Edge Function (mit 1x Retry) ----
+const CLAUDE_PROXY_URL = SUPABASE_URL + "/functions/v1/claude-proxy";
+
+async function askClaude(systemPrompt, userPrompt, retried){
+  try{
+    const res = await fetch(CLAUDE_PROXY_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": SUPABASE_KEY,
+        "Authorization": "Bearer " + SUPABASE_KEY
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 1000,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userPrompt }]
+      })
+    });
+    if(!res.ok){
+      const errData = await res.json().catch(() => ({}));
+      throw new Error('Proxy-Fehler (' + res.status + '): ' + (errData.error || 'unbekannt'));
+    }
+    const data = await res.json();
+    const textBlock = (data.content || []).find(b => b.type === 'text');
+    if(!textBlock) throw new Error('Keine Textantwort erhalten');
+    return textBlock.text.trim();
+  } catch(err){
+    if(!retried){
+      await new Promise(r => setTimeout(r, 1200));
+      return askClaude(systemPrompt, userPrompt, true);
+    }
+    throw new Error('Verbindung fehlgeschlagen nach erneutem Versuch: ' + err.message);
+  }
+}
+
+// ---- Start new Sitzung: Runde 1 ----
+async function startSitzung(){
+  const frage = document.getElementById('input-frage').value.trim();
+  if(!frage){ alert('Bitte eine Frage eingeben.'); return; }
+  const projekt = getProjektValue();
+  let kontext = document.getElementById('input-kontext').value.trim();
+  const istVermutung = document.getElementById('input-vermutung').checked;
+  if(kontext && istVermutung){
+    kontext = kontext + '\n\n(Hinweis: Dies ist eine Vermutung/Annahme von Uri, kein gesicherter Fakt — bitte entsprechend einordnen und ggf. hinterfragen.)';
+  }
+
+  const btn = document.getElementById('btn-start');
+  btn.disabled = true; btn.textContent = 'Der Rat berät ...';
+
+  showView('view-detail');
+  document.getElementById('detail-container').innerHTML = `
+    <div class="frage-box"><div class="eyebrow">${projekt ? escapeHtml(projekt) : 'Die Frage'}</div>${escapeHtml(frage)}</div>
+    <div class="loading">
+      <div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+      <div class="label">Runde 1 — fünf unabhängige Stimmen ...</div>
+    </div>`;
+
+  try{
+    const runde1 = {};
+    let letzterFehler = null;
+    for(const b of BERATER){
+      const sys = b.prompt + ' Antworte auf Deutsch, 60-120 Wörter, direkt und einseitig aus deiner Linse, ohne Vorgeplänkel. Keine Meta-Kommentare über deine Rolle.';
+      const userMsg = `Frage/Entscheidung: ${frage}` + (kontext ? `\n\nKontext: ${kontext}` : '');
+      try{
+        runde1[b.key] = await askClaude(sys, userMsg);
+      } catch(e){
+        letzterFehler = e;
+        break; // Rest der Schleife abbrechen, aber Bisheriges behalten
+      }
+    }
+
+    // Immer speichern, auch bei Teil-Fortschritt — sonst geht bei Netzwerkfehlern alles verloren
+    const insertRes = await sbFetch('rat_sitzungen', {
+      method: 'POST',
+      body: JSON.stringify({ projekt: projekt || null, frage, kontext: kontext || null, runde1, status: 'offen' })
+    });
+    currentSitzung = insertRes[0];
+
+    document.getElementById('input-projekt-select').value = '';
+    document.getElementById('input-projekt-custom').value = '';
+    document.getElementById('input-projekt-custom').style.display = 'none';
+    document.getElementById('input-frage-select').value = '';
+    document.getElementById('input-frage').value = '';
+    document.getElementById('input-kontext').value = '';
+    document.getElementById('input-vermutung').checked = false;
+
+    renderDetail();
+
+    if(letzterFehler){
+      document.getElementById('detail-container').innerHTML +=
+        `<div class="error-box">Runde 1 wurde nicht ganz fertig (${Object.keys(runde1).length}/${BERATER.length} Berater haben geantwortet). Grund: ${escapeHtml(letzterFehler.message)}</div>
+         <button class="btn-runde2" onclick="fortsetzenRunde1()">Fehlende Berater nachholen</button>`;
+    }
+  } catch(e){
+    document.getElementById('detail-container').innerHTML += `<div class="error-box">Fehler: ${escapeHtml(e.message)} — bitte Verbindung prüfen und erneut versuchen.</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Vor den Rat bringen';
+  }
+}
+
+// ---- Fehlende Berater aus Runde 1 nachholen ----
+async function fortsetzenRunde1(){
+  const s = currentSitzung;
+  const container = document.getElementById('detail-container');
+  container.innerHTML = renderFrageAndRunde1(s) + `
+    <div class="loading">
+      <div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+      <div class="label">Fehlende Berater werden befragt ...</div>
+    </div>`;
+
+  const fehlende = BERATER.filter(b => !s.runde1 || !s.runde1[b.key]);
+  const runde1 = { ...(s.runde1 || {}) };
+  let letzterFehler = null;
+
+  for(const b of fehlende){
+    const sys = b.prompt + ' Antworte auf Deutsch, 60-120 Wörter, direkt und einseitig aus deiner Linse, ohne Vorgeplänkel. Keine Meta-Kommentare über deine Rolle.';
+    const userMsg = `Frage/Entscheidung: ${s.frage}` + (s.kontext ? `\n\nKontext: ${s.kontext}` : '');
+    try{
+      runde1[b.key] = await askClaude(sys, userMsg);
+    } catch(e){
+      letzterFehler = e;
+      break;
+    }
+  }
+
+  try{
+    const updateRes = await sbFetch('rat_sitzungen?id=eq.' + s.id, {
+      method: 'PATCH',
+      body: JSON.stringify({ runde1 })
+    });
+    currentSitzung = updateRes[0];
+    renderDetail();
+    if(letzterFehler){
+      document.getElementById('detail-container').innerHTML +=
+        `<div class="error-box">Noch nicht alle Berater konnten antworten. Grund: ${escapeHtml(letzterFehler.message)}</div>
+         <button class="btn-runde2" onclick="fortsetzenRunde1()">Erneut versuchen</button>`;
+    }
+  } catch(e){
+    container.innerHTML += `<div class="error-box">Speichern fehlgeschlagen: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+// ---- Runde 2 ----
+async function startRunde2(){
+  const s = currentSitzung;
+  const container = document.getElementById('detail-container');
+  container.innerHTML = renderFrageAndRunde1(s) + `
+    <div class="loading">
+      <div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+      <div class="label">Runde 2 — Reaktionen aufeinander ...</div>
+    </div>`;
+
+  try{
+    const andereAntworten = BERATER.map(b => `${b.name}: ${s.runde1[b.key]}`).join('\n\n');
+    let runde2 = { ...(s.runde2 || {}) };
+    const nochOffen = BERATER.filter(b => !runde2[b.key]);
+    let fehlerRunde2 = null;
+    for(const b of nochOffen){
+      const sys = b.prompt + ' Du siehst jetzt die Antworten der anderen vier Berater aus Runde 1. Reagiere aus deiner Linse: Wo widersprichst du? Wo verstärkst du? Was hast du selbst übersehen? Antworte auf Deutsch, 60-100 Wörter, direkt. Keine Meta-Kommentare.';
+      const userMsg = `Frage: ${s.frage}${s.kontext ? '\nKontext: ' + s.kontext : ''}\n\nAntworten aus Runde 1:\n${andereAntworten}\n\nDeine eigene Runde-1-Antwort war: ${s.runde1[b.key]}`;
+      try{
+        runde2[b.key] = await askClaude(sys, userMsg);
+      } catch(e){
+        fehlerRunde2 = e;
+        break;
+      }
+    }
+
+    // Runde 2 zwischenspeichern, auch bei Teil-Fortschritt
+    let updateRes = await sbFetch('rat_sitzungen?id=eq.' + s.id, {
+      method: 'PATCH',
+      body: JSON.stringify({ runde2 })
+    });
+    currentSitzung = updateRes[0];
+
+    if(fehlerRunde2){
+      renderDetail();
+      document.getElementById('detail-container').innerHTML +=
+        `<div class="error-box">Runde 2 wurde nicht ganz fertig (${Object.keys(runde2).length}/${BERATER.length} Berater). Grund: ${escapeHtml(fehlerRunde2.message)}</div>
+         <button class="btn-runde2" onclick="startRunde2()">Erneut versuchen</button>`;
+      return;
+    }
+
+    container.innerHTML = renderFrageAndRunde1(s) + renderRunde2(runde2) + `
+      <div class="loading">
+        <div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+        <div class="label">Der Vorsitzende fasst zusammen ...</div>
+      </div>`;
+
+    const kreuzfeuerSys = 'Du bist ein neutraler Beobachter, der eine Ratsdebatte verfolgt hat. Fasse in 3-5 Sätzen auf Deutsch zusammen: Welche Antwort war am stärksten und warum? Welche hatte den größten blinden Fleck? Was haben alle fünf übersehen? Kurz und direkt, keine Überschriften.';
+    const kreuzfeuerMsg = `Frage: ${s.frage}\n\nRunde 1:\n${andereAntworten}\n\nRunde 2 (Reaktionen):\n${BERATER.map(b => `${b.name}: ${runde2[b.key]}`).join('\n\n')}`;
+    let kreuzfeuer;
+    try{
+      kreuzfeuer = await askClaude(kreuzfeuerSys, kreuzfeuerMsg);
+    } catch(e){
+      renderDetail();
+      document.getElementById('detail-container').innerHTML +=
+        `<div class="error-box">Kreuzfeuer fehlgeschlagen: ${escapeHtml(e.message)}</div>
+         <button class="btn-runde2" onclick="startFazit()">Erneut versuchen</button>`;
+      return;
+    }
+
+    await sbFetch('rat_sitzungen?id=eq.' + s.id, { method: 'PATCH', body: JSON.stringify({ kreuzfeuer }) });
+    currentSitzung.kreuzfeuer = kreuzfeuer;
+
+    const vorsitzSys = `Du bist DER VORSITZENDE des Rats. Du bist kein sechster Berater mit eigener Meinung, sondern synthetisierst die Debatte zu einem klaren Urteil. Antworte NUR mit einem validen JSON-Objekt (keine Markdown-Codeblöcke, kein Preamble), mit exakt diesen Feldern (Strings, Deutsch, direkt und ohne Hedging):
+{
+  "einigkeit": "Worüber sich der Rat einig ist",
+  "streit": "Worüber der Rat streitet - echte Meinungsverschiedenheiten, nicht glattgebügelt",
+  "uebersehen": "Was der Rat fast übersehen hätte",
+  "empfehlung": "Eine klare, direkte Empfehlung. Kein 'kommt drauf an'. Darf gegen die Mehrheit gehen, wenn die Begründung stärker ist.",
+  "ersterSchritt": "Ein einziger konkreter nächster Schritt, keine Liste"
+}`;
+    const vorsitzMsg = `Frage: ${s.frage}${s.kontext ? '\nKontext: ' + s.kontext : ''}\n\nRunde 1:\n${andereAntworten}\n\nRunde 2:\n${BERATER.map(b => `${b.name}: ${runde2[b.key]}`).join('\n\n')}\n\nKreuzfeuer-Beobachtung:\n${kreuzfeuer}`;
+    let fazit;
+    try{
+      let fazitRaw = await askClaude(vorsitzSys, vorsitzMsg);
+      fazitRaw = fazitRaw.replace(/```json|```/g, '').trim();
+      fazit = JSON.parse(fazitRaw);
+    } catch(e){
+      renderDetail();
+      document.getElementById('detail-container').innerHTML +=
+        `<div class="error-box">Vorsitzenden-Fazit fehlgeschlagen: ${escapeHtml(e.message)}</div>
+         <button class="btn-runde2" onclick="startFazit()">Erneut versuchen</button>`;
+      return;
+    }
+
+    const finalRes = await sbFetch('rat_sitzungen?id=eq.' + s.id, {
+      method: 'PATCH',
+      body: JSON.stringify({ fazit, status: 'fertig' })
+    });
+    currentSitzung = finalRes[0];
+    renderDetail();
+  } catch(e){
+    container.innerHTML += `<div class="error-box">Fehler in Runde 2: ${e.message}</div>`;
+  }
+}
+
+// ---- Nur Kreuzfeuer + Fazit erneut versuchen (wenn Runde 2 schon fertig ist) ----
+async function startFazit(){
+  const s = currentSitzung;
+  const container = document.getElementById('detail-container');
+  container.innerHTML = renderFrageAndRunde1(s) + renderRunde2(s.runde2) + `
+    <div class="loading">
+      <div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+      <div class="label">Der Vorsitzende fasst zusammen ...</div>
+    </div>`;
+
+  const andereAntworten = BERATER.map(b => `${b.name}: ${s.runde1[b.key]}`).join('\n\n');
+  let kreuzfeuer = s.kreuzfeuer;
+
+  try{
+    if(!kreuzfeuer){
+      const kreuzfeuerSys = 'Du bist ein neutraler Beobachter, der eine Ratsdebatte verfolgt hat. Fasse in 3-5 Sätzen auf Deutsch zusammen: Welche Antwort war am stärksten und warum? Welche hatte den größten blinden Fleck? Was haben alle fünf übersehen? Kurz und direkt, keine Überschriften.';
+      const kreuzfeuerMsg = `Frage: ${s.frage}\n\nRunde 1:\n${andereAntworten}\n\nRunde 2 (Reaktionen):\n${BERATER.map(b => `${b.name}: ${s.runde2[b.key]}`).join('\n\n')}`;
+      kreuzfeuer = await askClaude(kreuzfeuerSys, kreuzfeuerMsg);
+      await sbFetch('rat_sitzungen?id=eq.' + s.id, { method: 'PATCH', body: JSON.stringify({ kreuzfeuer }) });
+      currentSitzung.kreuzfeuer = kreuzfeuer;
+    }
+
+    const vorsitzSys = `Du bist DER VORSITZENDE des Rats. Du bist kein sechster Berater mit eigener Meinung, sondern synthetisierst die Debatte zu einem klaren Urteil. Antworte NUR mit einem validen JSON-Objekt (keine Markdown-Codeblöcke, kein Preamble), mit exakt diesen Feldern (Strings, Deutsch, direkt und ohne Hedging):
+{
+  "einigkeit": "Worüber sich der Rat einig ist",
+  "streit": "Worüber der Rat streitet - echte Meinungsverschiedenheiten, nicht glattgebügelt",
+  "uebersehen": "Was der Rat fast übersehen hätte",
+  "empfehlung": "Eine klare, direkte Empfehlung. Kein 'kommt drauf an'. Darf gegen die Mehrheit gehen, wenn die Begründung stärker ist.",
+  "ersterSchritt": "Ein einziger konkreter nächster Schritt, keine Liste"
+}`;
+    const vorsitzMsg = `Frage: ${s.frage}${s.kontext ? '\nKontext: ' + s.kontext : ''}\n\nRunde 1:\n${andereAntworten}\n\nRunde 2:\n${BERATER.map(b => `${b.name}: ${s.runde2[b.key]}`).join('\n\n')}\n\nKreuzfeuer-Beobachtung:\n${kreuzfeuer}`;
+    let fazitRaw = await askClaude(vorsitzSys, vorsitzMsg);
+    fazitRaw = fazitRaw.replace(/```json|```/g, '').trim();
+    const fazit = JSON.parse(fazitRaw);
+
+    const finalRes = await sbFetch('rat_sitzungen?id=eq.' + s.id, {
+      method: 'PATCH',
+      body: JSON.stringify({ fazit, status: 'fertig' })
+    });
+    currentSitzung = finalRes[0];
+    renderDetail();
+  } catch(e){
+    renderDetail();
+    document.getElementById('detail-container').innerHTML +=
+      `<div class="error-box">Fehlgeschlagen: ${escapeHtml(e.message)}</div>
+       <button class="btn-runde2" onclick="startFazit()">Erneut versuchen</button>`;
+  }
+}
+
+// ---- Rendering ----
+function renderFrageAndRunde1(s){
+  let html = `<div class="frage-box"><div class="eyebrow">${s.projekt ? escapeHtml(s.projekt) : 'Die Frage'}</div>${escapeHtml(s.frage)}</div>`;
+  html += `<div class="runde-label">Runde 1 — unabhängig</div>`;
+  BERATER.forEach(b => {
+    if(s.runde1 && s.runde1[b.key]){
+      html += `<div class="berater-card ${b.cls}"><div class="name">${b.name}</div><div class="text">${escapeHtml(s.runde1[b.key])}</div></div>`;
+    }
+  });
+  return html;
+}
+
+function renderRunde2(runde2){
+  let html = `<div class="runde-label">Runde 2 — Reaktionen</div>`;
+  BERATER.forEach(b => {
+    if(runde2 && runde2[b.key]){
+      html += `<div class="berater-card ${b.cls}"><div class="name">${b.name}</div><div class="text">${escapeHtml(runde2[b.key])}</div></div>`;
+    }
+  });
+  return html;
+}
+
+function renderFazit(s){
+  if(!s.fazit) return '';
+  const f = s.fazit;
+  let html = `<div class="fazit-wrap">
+    <div class="fazit-eyebrow">Das Urteil des Vorsitzenden</div>
+    <div class="fazit-section"><h3>Worüber sich der Rat einig ist</h3><p>${escapeHtml(f.einigkeit)}</p></div>
+    <div class="fazit-section"><h3>Worüber der Rat streitet</h3><p>${escapeHtml(f.streit)}</p></div>
+    <div class="fazit-section"><h3>Was fast übersehen wurde</h3><p>${escapeHtml(f.uebersehen)}</p></div>
+    <div class="fazit-section empfehlung"><h3>Die Empfehlung</h3><p>${escapeHtml(f.empfehlung)}</p></div>
+    <div class="fazit-section schritt"><h3>Der erste Schritt</h3><p>${escapeHtml(f.ersterSchritt)}</p></div>
+  </div>`;
+  return html;
+}
+
+function renderDetail(){
+  const s = currentSitzung;
+  const container = document.getElementById('detail-container');
+  let html = renderFrageAndRunde1(s);
+
+  if(s.runde2 && Object.keys(s.runde2).length > 0){
+    html += renderRunde2(s.runde2);
+  }
+  if(s.kreuzfeuer){
+    html += `<div class="runde-label">Kreuzfeuer</div><div class="kreuzfeuer-box">${escapeHtml(s.kreuzfeuer)}</div>`;
+  }
+  if(s.fazit){
+    html += renderFazit(s);
+  } else if(s.runde2 && Object.keys(s.runde2).length === BERATER.length){
+    html += `<button class="btn-runde2" onclick="startFazit()">Fazit abschließen</button>`;
+  } else if(s.runde1 && Object.keys(s.runde1).length === BERATER.length){
+    html += `<button class="btn-runde2" onclick="startRunde2()">Runde 2 starten — Reaktionen aufeinander</button>`;
+  } else if(s.runde1 && Object.keys(s.runde1).length > 0 && Object.keys(s.runde1).length < BERATER.length){
+    html += `<button class="btn-runde2" onclick="fortsetzenRunde1()">Runde 1 fortsetzen (${Object.keys(s.runde1).length}/${BERATER.length})</button>`;
+  }
+
+  container.innerHTML = html;
+}
+</script>
+</body>
+</html>
