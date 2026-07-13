@@ -51,9 +51,29 @@ strikt aus der jeweiligen Linse, ohne die Rollen zu vermischen.
    Markdown-Datei `sitzungen/YYYY-MM-DD-<kurzer-slug-der-frage>.md` (siehe
    Format unten). Das ersetzt die Supabase-Historie der Web-App.
 
-7. **Historie ansehen.** Wenn der Nutzer nach "Historie", "vergangene
+7. **Manifest aktualisieren.** Lege (falls nicht vorhanden) `sitzungen/index.json`
+   an und hänge einen Eintrag für die neue Sitzung an:
+   `{ "file": "<dateiname>.md", "datum": "YYYY-MM-DD", "projekt": "<Projekt oder leer>", "frage": "<Frage>" }`.
+   Über dieses Manifest liest die Web-App (`index.html`) die lokalen Sitzungen
+   automatisch mit ein und zeigt sie in der Historie neben den
+   Supabase-Sitzungen an (Badge "Claude Code") — ohne dieses Update taucht die
+   Sitzung dort nicht auf.
+
+8. **Historie ansehen.** Wenn der Nutzer nach "Historie", "vergangene
    Sitzungen" oder "Sitzungsverlauf" fragt: liste die Dateien in `sitzungen/`
-   (Datum + Frage aus der jeweiligen Datei), neueste zuerst.
+   (Datum + Frage aus der jeweiligen Datei), neueste zuerst. Alternativ kann
+   der Nutzer die Web-App öffnen — dort erscheinen dieselben Sitzungen im
+   selben Historie-View.
+
+9. **Sitzung löschen.** Wenn der Nutzer eine Sitzung löschen will ("lösche
+   Sitzung X", "räum die Historie auf"): entferne die entsprechende Markdown-
+   Datei aus `sitzungen/` UND den zugehörigen Eintrag aus
+   `sitzungen/index.json`, dann committen und (nach Rückfrage, siehe
+   Git-Regeln) pushen. Die Web-App kann lokale Claude-Code-Sitzungen aus
+   Sicherheitsgründen nicht selbst löschen (kein Schreibzugriff aufs Repo im
+   Browser) — sie zeigt stattdessen genau diesen Hinweis samt Dateiname an.
+   Supabase-Sitzungen (in der App selbst erstellt) lassen sich dagegen direkt
+   in der Web-App über den "Sitzung löschen"-Button entfernen.
 
 ## Die fünf Berater
 

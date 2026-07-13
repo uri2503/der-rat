@@ -131,6 +131,7 @@
   .status-pill{ font-size:10px; padding:2px 8px; border-radius:10px; text-transform:uppercase; letter-spacing:0.04em; }
   .status-offen{ background: rgba(198,162,78,0.15); color: var(--visionaer); }
   .status-fertig{ background: rgba(78,198,154,0.15); color: var(--aussen); }
+  .quelle-tag{ margin-left:8px; font-size:10px; padding:1px 7px; border-radius:8px; background: rgba(198,162,78,0.15); color: var(--visionaer); text-transform:uppercase; letter-spacing:0.04em; }
   .empty-state{ text-align:center; padding: 60px 20px; color: var(--text-faint); }
   .empty-state .big{ font-family: var(--serif); font-size:20px; color: var(--text-dim); margin-bottom:8px; }
 
@@ -270,6 +271,12 @@
 
   <!-- VIEW: SESSION LIST -->
   <div class="view" id="view-list">
+    <div class="field" id="filter-projekt-wrap" style="display:none; margin-bottom:14px;">
+      <label>Nach Projekt filtern</label>
+      <select id="filter-projekt-select" onchange="renderSitzungenListe()">
+        <option value="">— Alle Projekte —</option>
+      </select>
+    </div>
     <div id="list-container"></div>
   </div>
 
@@ -283,6 +290,7 @@
 const SUPABASE_URL = "https://ysqzdqazcgyuzdorauiq.supabase.co";
 const SUPABASE_KEY = "sb_publishable_v4kXJa0y-2EHsCFPqBFHfg_QvzKLnt2";
 const CORRECT_PIN = "2503";
+const SITZUNGEN_MANIFEST = "sitzungen/index.json";
 
 const BERATER = [
   { key:'skeptiker', name:'Der Skeptiker', cls:'skeptiker',
@@ -299,6 +307,7 @@ const BERATER = [
 
 let currentSitzung = null;
 let allSitzungen = [];
+let lastListError = null;
 
 // ---- Projekte (rc-digital Portfolio) ----
 const PROJEKTE = [
@@ -412,32 +421,100 @@ async function sbFetch(path, opts={}){
   return res.json();
 }
 
+// ---- Lokale Rat-Skill-Sitzungen (aus Claude Code, sitzungen/-Ordner) ----
+async function loadClaudeSitzungen(){
+  try{
+    const res = await fetch(SITZUNGEN_MANIFEST);
+    if(!res.ok) return [];
+    const manifest = await res.json();
+    return manifest.map(m => ({
+      id: 'cc:' + m.file,
+      projekt: m.projekt || '',
+      frage: m.frage || '',
+      created_at: m.datum,
+      status: 'fertig',
+      quelle: 'claude-code',
+      file: m.file
+    }));
+  } catch(e){
+    return [];
+  }
+}
+
 async function loadList(){
   const container = document.getElementById('list-container');
   container.innerHTML = '<div class="loading"><div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div><div class="label">Lade Sitzungen ...</div></div>';
+  let sbSitzungen = [];
+  let sbError = null;
   try{
-    allSitzungen = await sbFetch('rat_sitzungen?select=*&order=created_at.desc');
+    sbSitzungen = await sbFetch('rat_sitzungen?select=*&order=created_at.desc');
   } catch(e){
-    container.innerHTML = '<div class="error-box">Konnte Historie nicht laden: ' + e.message + '</div>';
+    sbError = e;
+  }
+  const ccSitzungen = await loadClaudeSitzungen();
+  allSitzungen = [...sbSitzungen, ...ccSitzungen].sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+  lastListError = allSitzungen.length === 0 ? sbError : null;
+
+  const filterSelect = document.getElementById('filter-projekt-select');
+  const filterWrap = document.getElementById('filter-projekt-wrap');
+  const bisherigeAuswahl = filterSelect.value;
+  const projekte = [...new Set(allSitzungen.map(s => s.projekt).filter(Boolean))].sort((a,b) => a.localeCompare(b, 'de'));
+  filterWrap.style.display = projekte.length > 0 ? 'block' : 'none';
+  filterSelect.innerHTML = '<option value="">— Alle Projekte —</option>' +
+    projekte.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+  if(projekte.includes(bisherigeAuswahl)) filterSelect.value = bisherigeAuswahl;
+
+  renderSitzungenListe();
+}
+
+function renderSitzungenListe(){
+  const container = document.getElementById('list-container');
+  const filter = document.getElementById('filter-projekt-select').value;
+  const gefiltert = filter ? allSitzungen.filter(s => s.projekt === filter) : allSitzungen;
+
+  if(gefiltert.length === 0){
+    if(lastListError){
+      container.innerHTML = '<div class="error-box">Konnte Historie nicht laden: ' + escapeHtml(lastListError.message) + '</div>';
+    } else if(filter){
+      container.innerHTML = '<div class="empty-state"><div class="big">Keine Sitzung für dieses Projekt</div>Filter zurücksetzen, um alle Sitzungen zu sehen.</div>';
+    } else {
+      container.innerHTML = '<div class="empty-state"><div class="big">Noch keine Sitzung</div>Bring dein erstes Projekt vor den Rat.</div>';
+    }
     return;
   }
-  if(allSitzungen.length === 0){
-    container.innerHTML = '<div class="empty-state"><div class="big">Noch keine Sitzung</div>Bring dein erstes Projekt vor den Rat.</div>';
-    return;
-  }
-  container.innerHTML = allSitzungen.map(s => {
+  container.innerHTML = gefiltert.map(s => {
     const datum = new Date(s.created_at).toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit', year:'numeric'});
     const statusCls = s.status === 'fertig' ? 'status-fertig' : 'status-offen';
     const statusTxt = s.status === 'fertig' ? 'Fazit vorliegt' : 'Offen';
+    const quelleTag = s.quelle === 'claude-code' ? '<span class="quelle-tag">Claude Code</span>' : '';
     return `<div class="session-item" onclick="openSitzung('${s.id}')">
       ${s.projekt ? `<div class="proj">${escapeHtml(s.projekt)}</div>` : ''}
       <div class="frage">${escapeHtml(s.frage)}</div>
-      <div class="meta"><span>${datum}</span><span class="status-pill ${statusCls}">${statusTxt}</span></div>
+      <div class="meta"><span>${datum}${quelleTag}</span><span class="status-pill ${statusCls}">${statusTxt}</span></div>
     </div>`;
   }).join('');
 }
 
 async function openSitzung(id){
+  if(id.startsWith('cc:')){
+    const meta = allSitzungen.find(s => s.id === id);
+    showView('view-detail');
+    document.getElementById('header-title').textContent = 'Sitzung';
+    document.getElementById('header-tagline').textContent = (meta && meta.projekt) || '';
+    document.getElementById('nav-btn').textContent = 'Historie';
+    document.getElementById('nav-btn').onclick = goToList;
+    const container = document.getElementById('detail-container');
+    container.innerHTML = '<div class="loading"><div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div><div class="label">Lade Sitzung ...</div></div>';
+    try{
+      const res = await fetch('sitzungen/' + meta.file);
+      if(!res.ok) throw new Error('Datei nicht gefunden (' + res.status + ')');
+      const text = await res.text();
+      container.innerHTML = renderClaudeCodeSitzung(text) + renderLoeschHinweisLokal(meta.file);
+    } catch(e){
+      container.innerHTML = '<div class="error-box">Konnte Sitzung nicht laden: ' + escapeHtml(e.message) + '</div>';
+    }
+    return;
+  }
   currentSitzung = allSitzungen.find(s => s.id === id);
   if(!currentSitzung){
     const rows = await sbFetch('rat_sitzungen?id=eq.' + id + '&select=*');
@@ -449,6 +526,90 @@ async function openSitzung(id){
   document.getElementById('nav-btn').textContent = 'Historie';
   document.getElementById('nav-btn').onclick = goToList;
   renderDetail();
+  document.getElementById('detail-container').innerHTML +=
+    `<button class="btn-secondary" style="color:var(--skeptiker); border-color:rgba(198,91,78,0.3)" onclick="loescheSitzung('${currentSitzung.id}')">Sitzung löschen</button>`;
+}
+
+// ---- Sitzung löschen ----
+async function loescheSitzung(id){
+  if(!confirm('Diese Sitzung unwiderruflich löschen?')) return;
+  try{
+    await sbFetch('rat_sitzungen?id=eq.' + id, { method: 'DELETE' });
+    goToList();
+  } catch(e){
+    alert('Löschen fehlgeschlagen: ' + e.message);
+  }
+}
+
+function renderLoeschHinweisLokal(file){
+  const hinweis = 'Lösche die Rat-Sitzung ' + file + ' (Datei und Eintrag in sitzungen/index.json entfernen, committen und pushen).';
+  return `<div class="error-box" style="margin-top:16px">
+    Diese Sitzung stammt aus Claude Code und lässt sich aus Sicherheitsgründen nicht direkt aus der
+    Web-App löschen (dafür müsste ein Schreibzugriff auf das Repo im Browser liegen). Sag stattdessen
+    in Claude Code:<br><br>
+    <span style="user-select:all; font-family:var(--mono); font-size:12.5px;">${escapeHtml(hinweis)}</span>
+  </div>`;
+}
+
+// ---- Markdown-Sitzung (aus Claude Code) ins bestehende Layout rendern ----
+const BERATER_EMOJI_CLS = { '🔴':'skeptiker', '🔵':'grundsatz', '🟡':'visionaer', '🟢':'aussen', '🟣':'macher' };
+
+function renderClaudeCodeSitzung(raw){
+  let text = raw.trim();
+  if(text.startsWith('---')){
+    const end = text.indexOf('\n---', 3);
+    if(end !== -1) text = text.slice(end + 4).trim();
+  }
+
+  const sections = [];
+  let current = null;
+  for(const line of text.split('\n')){
+    const m = line.match(/^##\s+(.*)$/);
+    if(m){
+      current = { title: m[1].trim(), lines: [] };
+      sections.push(current);
+    } else if(current){
+      current.lines.push(line);
+    }
+  }
+
+  let html = '';
+  sections.forEach((sec, idx) => {
+    const body = sec.lines.join('\n').trim();
+    if(idx === 0){
+      const projekt = sec.title.includes('—') ? sec.title.split('—')[0].trim() : '';
+      const paragraphs = body.split(/\n\s*\n/).map(p => escapeHtml(p).replace(/\n/g, '<br>')).join('<br><br>');
+      html += `<div class="frage-box"><div class="eyebrow">${escapeHtml(projekt || 'Die Frage')}</div>${paragraphs}</div>`;
+    } else if(/^Runde \d/i.test(sec.title)){
+      html += `<div class="runde-label">${escapeHtml(sec.title)}</div>`;
+      body.split(/\n\s*\n/).forEach(block => {
+        const bl = block.trim();
+        if(!bl) return;
+        const blines = bl.split('\n');
+        const headerMatch = blines[0].match(/^(\S+)\s+\*\*(.+?)\*\*/);
+        if(headerMatch){
+          const cls = BERATER_EMOJI_CLS[headerMatch[1]] || '';
+          const answer = blines.slice(1).join(' ').trim();
+          html += `<div class="berater-card ${cls}"><div class="name">${escapeHtml(headerMatch[2])}</div><div class="text">${escapeHtml(answer)}</div></div>`;
+        }
+      });
+    } else if(/Kreuzfeuer/i.test(sec.title)){
+      html += `<div class="runde-label">Kreuzfeuer</div><div class="kreuzfeuer-box">${escapeHtml(body)}</div>`;
+    } else if(/Vorsitzenden/i.test(sec.title)){
+      html += `<div class="fazit-wrap"><div class="fazit-eyebrow">Das Urteil des Vorsitzenden</div>`;
+      body.split('\n').filter(l => l.trim()).forEach(l => {
+        const fm = l.match(/^\*\*(.+?):\*\*\s*(.*)$/);
+        if(fm){
+          const isEmpf = /empfehlung/i.test(fm[1]);
+          html += `<div class="fazit-section${isEmpf ? ' empfehlung' : ''}"><h3>${escapeHtml(fm[1])}</h3><p>${escapeHtml(fm[2])}</p></div>`;
+        }
+      });
+      html += `</div>`;
+    } else {
+      html += `<div class="runde-label">${escapeHtml(sec.title)}</div><div class="kreuzfeuer-box">${escapeHtml(body)}</div>`;
+    }
+  });
+  return html;
 }
 
 function escapeHtml(str){
