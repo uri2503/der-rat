@@ -65,6 +65,16 @@ strikt aus der jeweiligen Linse, ohne die Rollen zu vermischen.
    der Nutzer die Web-App öffnen — dort erscheinen dieselben Sitzungen im
    selben Historie-View.
 
+9. **Sitzung löschen.** Wenn der Nutzer eine Sitzung löschen will ("lösche
+   Sitzung X", "räum die Historie auf"): entferne die entsprechende Markdown-
+   Datei aus `sitzungen/` UND den zugehörigen Eintrag aus
+   `sitzungen/index.json`, dann committen und (nach Rückfrage, siehe
+   Git-Regeln) pushen. Die Web-App kann lokale Claude-Code-Sitzungen aus
+   Sicherheitsgründen nicht selbst löschen (kein Schreibzugriff aufs Repo im
+   Browser) — sie zeigt stattdessen genau diesen Hinweis samt Dateiname an.
+   Supabase-Sitzungen (in der App selbst erstellt) lassen sich dagegen direkt
+   in der Web-App über den "Sitzung löschen"-Button entfernen.
+
 ## Die fünf Berater
 
 - **Der Skeptiker** — Du suchst aktiv nach dem, was nicht funktioniert, was

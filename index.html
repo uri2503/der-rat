@@ -271,6 +271,12 @@
 
   <!-- VIEW: SESSION LIST -->
   <div class="view" id="view-list">
+    <div class="field" id="filter-projekt-wrap" style="display:none; margin-bottom:14px;">
+      <label>Nach Projekt filtern</label>
+      <select id="filter-projekt-select" onchange="renderSitzungenListe()">
+        <option value="">— Alle Projekte —</option>
+      </select>
+    </div>
     <div id="list-container"></div>
   </div>
 
@@ -301,6 +307,7 @@ const BERATER = [
 
 let currentSitzung = null;
 let allSitzungen = [];
+let lastListError = null;
 
 // ---- Projekte (rc-digital Portfolio) ----
 const PROJEKTE = [
@@ -446,16 +453,36 @@ async function loadList(){
   }
   const ccSitzungen = await loadClaudeSitzungen();
   allSitzungen = [...sbSitzungen, ...ccSitzungen].sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+  lastListError = allSitzungen.length === 0 ? sbError : null;
 
-  if(allSitzungen.length === 0){
-    if(sbError){
-      container.innerHTML = '<div class="error-box">Konnte Historie nicht laden: ' + escapeHtml(sbError.message) + '</div>';
+  const filterSelect = document.getElementById('filter-projekt-select');
+  const filterWrap = document.getElementById('filter-projekt-wrap');
+  const bisherigeAuswahl = filterSelect.value;
+  const projekte = [...new Set(allSitzungen.map(s => s.projekt).filter(Boolean))].sort((a,b) => a.localeCompare(b, 'de'));
+  filterWrap.style.display = projekte.length > 0 ? 'block' : 'none';
+  filterSelect.innerHTML = '<option value="">— Alle Projekte —</option>' +
+    projekte.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+  if(projekte.includes(bisherigeAuswahl)) filterSelect.value = bisherigeAuswahl;
+
+  renderSitzungenListe();
+}
+
+function renderSitzungenListe(){
+  const container = document.getElementById('list-container');
+  const filter = document.getElementById('filter-projekt-select').value;
+  const gefiltert = filter ? allSitzungen.filter(s => s.projekt === filter) : allSitzungen;
+
+  if(gefiltert.length === 0){
+    if(lastListError){
+      container.innerHTML = '<div class="error-box">Konnte Historie nicht laden: ' + escapeHtml(lastListError.message) + '</div>';
+    } else if(filter){
+      container.innerHTML = '<div class="empty-state"><div class="big">Keine Sitzung für dieses Projekt</div>Filter zurücksetzen, um alle Sitzungen zu sehen.</div>';
     } else {
       container.innerHTML = '<div class="empty-state"><div class="big">Noch keine Sitzung</div>Bring dein erstes Projekt vor den Rat.</div>';
     }
     return;
   }
-  container.innerHTML = allSitzungen.map(s => {
+  container.innerHTML = gefiltert.map(s => {
     const datum = new Date(s.created_at).toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit', year:'numeric'});
     const statusCls = s.status === 'fertig' ? 'status-fertig' : 'status-offen';
     const statusTxt = s.status === 'fertig' ? 'Fazit vorliegt' : 'Offen';
@@ -482,7 +509,7 @@ async function openSitzung(id){
       const res = await fetch('sitzungen/' + meta.file);
       if(!res.ok) throw new Error('Datei nicht gefunden (' + res.status + ')');
       const text = await res.text();
-      container.innerHTML = renderClaudeCodeSitzung(text);
+      container.innerHTML = renderClaudeCodeSitzung(text) + renderLoeschHinweisLokal(meta.file);
     } catch(e){
       container.innerHTML = '<div class="error-box">Konnte Sitzung nicht laden: ' + escapeHtml(e.message) + '</div>';
     }
@@ -499,6 +526,29 @@ async function openSitzung(id){
   document.getElementById('nav-btn').textContent = 'Historie';
   document.getElementById('nav-btn').onclick = goToList;
   renderDetail();
+  document.getElementById('detail-container').innerHTML +=
+    `<button class="btn-secondary" style="color:var(--skeptiker); border-color:rgba(198,91,78,0.3)" onclick="loescheSitzung('${currentSitzung.id}')">Sitzung löschen</button>`;
+}
+
+// ---- Sitzung löschen ----
+async function loescheSitzung(id){
+  if(!confirm('Diese Sitzung unwiderruflich löschen?')) return;
+  try{
+    await sbFetch('rat_sitzungen?id=eq.' + id, { method: 'DELETE' });
+    goToList();
+  } catch(e){
+    alert('Löschen fehlgeschlagen: ' + e.message);
+  }
+}
+
+function renderLoeschHinweisLokal(file){
+  const hinweis = 'Lösche die Rat-Sitzung ' + file + ' (Datei und Eintrag in sitzungen/index.json entfernen, committen und pushen).';
+  return `<div class="error-box" style="margin-top:16px">
+    Diese Sitzung stammt aus Claude Code und lässt sich aus Sicherheitsgründen nicht direkt aus der
+    Web-App löschen (dafür müsste ein Schreibzugriff auf das Repo im Browser liegen). Sag stattdessen
+    in Claude Code:<br><br>
+    <span style="user-select:all; font-family:var(--mono); font-size:12.5px;">${escapeHtml(hinweis)}</span>
+  </div>`;
 }
 
 // ---- Markdown-Sitzung (aus Claude Code) ins bestehende Layout rendern ----
